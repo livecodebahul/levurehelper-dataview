@@ -739,11 +739,14 @@ command RenderVisibleRows
 
   local forceFillInData = "true"
 
+  local tCurrentColCount
   if theStartRow > 0 then
-    local theTopLeft, tControlId
+    local theTopLeft, tControlId, tGroupLeft
 
+    put 1 into tCurrentColCount
     put the topleft of group "dvListMask" of me into theTopLeft
     subtract theStartRowYOffset from item 2 of theTopLeft
+    put item 1 of theTopLeft into tGroupLeft
 
     set the lockUpdates of group "dvList" of me to kLockUpdatesSetting
     repeat with theRow = theStartRow to theEndRow
@@ -780,7 +783,15 @@ command RenderVisibleRows
         _hiliteControl tControlId, false
       end if
 
-      put the bottom of control id tControlId into item 2 of theTopLeft
+      if the uColumnCount of me is empty or \
+          the uColumnCount of me <= tCurrentColCount then
+        put 1 into tCurrentColCount
+        put tGroupLeft into item 1 of theTopLeft
+        put the bottom of control id tControlId into item 2 of theTopLeft
+      else
+        add 1 to tCurrentColCount
+        put (the right of control id tControlId) + 10 into item 1 of theTopLeft
+      end if
 
       # relayer row control so that tabbing through controls works as expected.
       lock messages
@@ -1326,7 +1337,12 @@ getProp viewProp [pProp]
       break
 
     case "content width"
-      return the width of group "dvList" of me
+      if the uColumnCount of me is empty then
+        return the width of group "dvList" of me
+      else
+        return (the width of group "dvList" of me / the uColumnCount of me) \
+            - (5 * (the uColumnCount of me - 1))
+      end if
       break
 
     case "content window width"
@@ -2816,6 +2832,12 @@ Returns: Rect
 private function _relativeRectOfRow pRow
   local theRect
 
+  local tColumnCount
+  put the uColumnCount of me into tColumnCount
+  if tColumnCount is empty then
+    put 1 into tColumnCount
+  end if
+
   local theContentHeight, theControlHeight, theRowWidth, theIndex
   local updateViewHeight = "false"
 
@@ -2825,8 +2847,8 @@ private function _relativeRectOfRow pRow
 
   ## Determine top and bottom of control
   if the viewProp["fixed row height"] of me then
-    put theContentHeight + ((pRow - 1) * the viewProp["row height"] of me) into item 2 of theRect
-    put theContentHeight + (pRow * the viewProp["row height"] of me) into item 4 of theRect
+    put theContentHeight + (((pRow / tColumnCount) - 1) * (the viewProp["row height"] of me)) into item 2 of theRect
+    put theContentHeight + (ceil(pRow / tColumnCount) * (the viewProp["row height"] of me)) into item 4 of theRect
 
   else if the viewProp["cache"] of me is "none" then
 
@@ -3983,8 +4005,14 @@ private command _calculateContentHeight pRefreshHeight
   put the lockMessages into msgsAreLocked
   set the lockMessages to false
 
+  local tColumnCount
+  put the uColumnCount of me into tColumnCount
+  if tColumnCount is empty then
+    put 1 into tColumnCount
+  end if
+
   if the viewProp["fixed row height"] of me then
-    set the viewProp["content height"] of me to (the viewProp["number of rows"] of me * max(0, the viewProp["row height"] of me)) \
+    set the viewProp["content height"] of me to (ceil(the viewProp["number of rows"] of me / tColumnCount) * max(0, the viewProp["row height"] of me)) \
           + the viewProp["content top padding"] of me + the viewProp["content bottom padding"] of me
 
   else if the viewProp["cache"] of me is "none" then
@@ -4553,6 +4581,11 @@ private command _getRangeOfRowsToDisplay @rStartRow, @rEndRow, @rStartRowYOffset
     return empty
   end if
 
+  local tColumnCount
+  put the uColumnCount of me into tColumnCount
+  if tColumnCount is empty then
+    put 1 into tColumnCount
+  end if
   -- vscroll / (outside world content - window height) = percentage
   -- vscroll = 23
   -- row height = 10
@@ -4571,25 +4604,35 @@ private command _getRangeOfRowsToDisplay @rStartRow, @rEndRow, @rStartRowYOffset
     if theVSCroll < 0 then put abs(theVSCroll) into theAdditionalHeight
 
     put max(0, theVSCroll - item 1 of _workingTopAndBottomContentCoordinates()) div the viewProp["row height"] of me + 1 into rStartRow
+    if tColumnCount > 1 and \
+        rStartRow is not 1 then
+      put ((rStartRow - 1) * tColumnCount + 1) into rStartRow
+   end if
 
     if theVScroll < item 1 of _workingTopAndBottomContentCoordinates() then
       put -(item 1 of _workingTopAndBottomContentCoordinates() - theVScroll) into rStartRowYOffset
       put (the viewProp["content window height"] of me + rStartRowYOffset + theAdditionalHeight) div the viewProp["row height"] of me into theNumberOfVisibleRows
+      put theNumberOfVisibleRows * tColumnCount into theNumberOfVisibleRows
       if the viewProp["content window height"] of me mod the viewProp["row height"] of me > 0 then
-        add 1 to theNumberOfVisibleRows
+        add tColumnCount to theNumberOfVisibleRows
       end if
     else
       put (theVSCroll - item 1 of _workingTopAndBottomContentCoordinates()) mod the viewProp["row height"] of me into rStartRowYOffset
       put (the viewProp["content window height"] of me + rStartRowYOffset + theAdditionalHeight) div the viewProp["row height"] of me into theNumberOfVisibleRows
+      put theNumberOfVisibleRows * tColumnCount into theNumberOfVisibleRows
       if the viewProp["content window height"] of me mod the viewProp["row height"] of me > 0 then
-        add 1 to theNumberOfVisibleRows
+        add tColumnCount to theNumberOfVisibleRows
       end if
     end if
 
+    if theNumberOfVisibleRows mod tColumnCount > 0 then
+      add tColumnCount - (theNumberOfVisibleRows mod tColumnCount) \
+        to theNumberOfVisibleRows
+    end if
     ## Make sure we have enough controls to scroll
     put min(theRowCount, rStartRow + theNumberOfVisibleRows) into rEndRow
     if rStartRowYOffset < 0 then
-      add 1 to rEndRow
+      add tColumnCount to rEndRow
     end if
 
     put min(rEndRow, the viewProp["number of rows"] of me) into rEndRow

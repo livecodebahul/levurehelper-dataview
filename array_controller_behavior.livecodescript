@@ -97,6 +97,9 @@ command DeleteIds pIds, pRefreshView
     delete local sDataA[tRow]
   end repeat
 
+  # Rows have been reindexed so the id lookup cache is no longer valid.
+  put empty into sIdToRowLookupA
+
   if the viewProp["cache"] of me is "none" then
     if pRefreshView then
       RefreshViewRows
